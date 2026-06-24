@@ -8,6 +8,7 @@ Run locally:  uv run --extra dashboard streamlit run dashboard/app.py
 
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 
@@ -15,11 +16,21 @@ import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
+st.set_page_config(page_title="Net worth", page_icon="📈", layout="wide")
+
+# Streamlit Community Cloud exposes secrets via st.secrets, not environment variables.
+# Mirror them into os.environ BEFORE importing networth, whose config reads env at import
+# time. Locally (no secrets file) this is a harmless no-op and the defaults/real env apply.
+try:
+    for _k, _v in st.secrets.items():
+        os.environ.setdefault(_k, str(_v))
+except Exception:
+    pass
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from networth.pipeline import ATTRIBUTION_KEY, INSIGHTS_KEY, VALUATION_KEY  # noqa: E402
 from networth.storage import get_storage  # noqa: E402
 
-st.set_page_config(page_title="Net worth", page_icon="📈", layout="wide")
 storage = get_storage()
 
 
