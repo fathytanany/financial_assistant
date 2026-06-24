@@ -1,0 +1,10 @@
+# For Streamlit Community Cloud (pip-based). The app imports `networth` directly from
+# ./src via sys.path, so only third-party libraries are needed here.
+# Local dev / GitHub Actions use uv + pyproject.toml instead (this file is ignored there).
+pandas>=2.2
+pyarrow>=16
+requests>=2.31
+boto3>=1.34
+anthropic>=0.40
+streamlit>=1.40
+plotly>=5.24
