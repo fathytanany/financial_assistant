@@ -105,11 +105,13 @@ left.plotly_chart(pie, width="stretch")
 m = a.set_index("date")
 monthly = pd.DataFrame({
     "Savings added": (m["external_flow"] * factor.values).resample("ME").sum(),
+    "Booked gains": (m["realized_gain"] * factor.values).resample("ME").sum(),
     "FX moves": (m["unrealized_fx"] * factor.values).resample("ME").sum(),
     "Gold moves": (m["unrealized_gold"] * factor.values).resample("ME").sum(),
 })
 bar = go.Figure()
-for col, color in [("Savings added", "#B4B2A9"), ("FX moves", "#378ADD"), ("Gold moves", "#EF9F27")]:
+for col, color in [("Savings added", "#B4B2A9"), ("Booked gains", "#1D9E75"),
+                   ("FX moves", "#378ADD"), ("Gold moves", "#EF9F27")]:
     bar.add_bar(x=monthly.index, y=monthly[col], name=col, marker_color=color)
 bar.update_layout(barmode="relative", height=320, margin=dict(l=0, r=0, t=10, b=0),
                   yaxis_tickprefix=sym, legend=dict(orientation="h"))
