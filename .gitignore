@@ -27,3 +27,6 @@ build/
 .idea/
 .vscode/
 .claude/settings.local.json
+
+# Lockfiles
+uv.lock
