@@ -24,3 +24,27 @@ def fetch_external() -> dict[str, pd.Series]:
     if not gold.empty:
         out["XAU"] = gold
     return out
+
+
+def fetch_current_rates() -> dict[str, float]:
+    """Latest live EGP-per-currency rates for today's valuation.
+
+    AED/SAR are USD-pegged, so they're derived from USD/EGP when a direct quote is missing.
+    Any source failing (e.g. no network) just drops out and the caller falls back to the
+    backup's stored rate.
+    """
+    out: dict[str, float] = {}
+    usd = StooqFx("USD").fetch()
+    if not usd.empty:
+        out["USD"] = float(usd.iloc[-1])
+    for ccy in ("AED", "SAR"):
+        s = StooqFx(ccy).fetch()
+        if not s.empty:
+            out[ccy] = float(s.iloc[-1])
+    gold = StooqGold().fetch()
+    if not gold.empty:
+        out["XAU"] = float(gold.iloc[-1])
+    if "USD" in out:
+        out.setdefault("AED", out["USD"] / 3.6725)
+        out.setdefault("SAR", out["USD"] / 3.75)
+    return out

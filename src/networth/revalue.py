@@ -18,8 +18,16 @@ import pandas as pd
 from . import config
 
 
-def build_positions(entries: pd.DataFrame, accounts: pd.DataFrame, idx: pd.DatetimeIndex) -> pd.DataFrame:
-    """Per account, daily balance in the account's own currency."""
+def build_positions(
+    entries: pd.DataFrame,
+    accounts: pd.DataFrame,
+    idx: pd.DatetimeIndex,
+) -> pd.DataFrame:
+    """Per account, daily balance in the account's own currency.
+
+    Starts from each account's `initial_balance` (already opening-reconciled in `normalize`)
+    and lays the daily `delta` cumulatively over the date index.
+    """
     pos = pd.DataFrame(index=idx)
     for _, a in accounts.iterrows():
         e = entries[entries["account_pk"] == a["pk"]]
@@ -72,17 +80,21 @@ def build_attribution(
     nw_egp = valuation.groupby("date")["value_egp"].sum().reindex(idx)
     nw_usd = valuation.groupby("date")["value_usd"].sum().reindex(idx)
 
-    # External cash flow: genuine income/expense only (transfers are internal, net-zero).
-    flows = entries[(~entries["is_transfer"]) & (entries["kind"].isin(["income", "expense"]))]
-    flow_egp = pd.Series(0.0, index=idx)
-    if not flows.empty:
-        tmp = flows.copy()
-        tmp["rate"] = [
+    def _egp_by_day(rows: pd.DataFrame) -> pd.Series:
+        """Daily EGP total of a set of entries, each valued at its day's rate."""
+        if rows.empty:
+            return pd.Series(0.0, index=idx)
+        rate = [
             rates[ccy].get(d, 1.0) if ccy in rates.columns else 1.0
-            for ccy, d in zip(tmp["account_currency"], tmp["date"])
+            for ccy, d in zip(rows["account_currency"], rows["date"])
         ]
-        tmp["egp"] = tmp["delta"] * tmp["rate"]
-        flow_egp = tmp.groupby("date")["egp"].sum().reindex(idx, fill_value=0.0)
+        egp = pd.Series(rows["delta"].to_numpy() * rate, index=pd.DatetimeIndex(rows["date"]))
+        return egp.groupby(level=0).sum().reindex(idx, fill_value=0.0)
+
+    # Contributions = real income/expense ("add to stats" ON). Booked/realized gains are the
+    # entries you flagged out of stats (e.g. marking an investment gain). Transfers are internal.
+    external_flow = _egp_by_day(entries[entries["flow_type"] == "cashflow"])
+    realized_gain = _egp_by_day(entries[entries["flow_type"] == "adjustment"])
 
     # Unrealized: yesterday's holdings revalued by today's rate change.
     ufx = pd.Series(0.0, index=idx)
@@ -97,13 +109,15 @@ def build_attribution(
             "date": idx,
             "net_worth_egp": nw_egp.to_numpy(),
             "net_worth_usd": nw_usd.to_numpy(),
-            "external_flow": flow_egp.to_numpy(),
+            "external_flow": external_flow.to_numpy(),
+            "realized_gain": realized_gain.to_numpy(),
             "unrealized_fx": ufx.to_numpy(),
             "unrealized_gold": ugold.to_numpy(),
         }
     )
-    out["unrealized_stock"] = 0.0
-    out["total_change"] = out["external_flow"] + out["unrealized_fx"] + out["unrealized_gold"]
+    out["total_change"] = (
+        out["external_flow"] + out["realized_gain"] + out["unrealized_fx"] + out["unrealized_gold"]
+    )
     return out
 
 

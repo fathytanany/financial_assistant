@@ -38,9 +38,12 @@ Full reference: `specs/data-model.md`.
 day* in `ZEXCHANGERATE1` → these are historical rate anchors. Validated net worth ≈ [redacted].
 
 ## Attribution (the truth engine) — `specs/valuation.md`
-`Δ net_worth = external_flow + unrealized_fx + unrealized_gold`, where `external_flow` =
-income−expense for non-transfer entries (transfers are internal), and unrealized =
-`yesterday's holdings × today's rate change`.
+`Δ net_worth = external_flow + realized_gain + unrealized_fx + unrealized_gold`. Entries are
+classified by `flow_type`: **transfer** (contra-linked, internal, net-zero), **cashflow**
+(real income/expense, `ZINCLUDEINSTATISTICS=1`) → `external_flow` (contributions), and
+**adjustment** (non-transfer, `ZINCLUDEINSTATISTICS=0`, i.e. the "add to stats" toggle off) →
+`realized_gain` (booked investment gains/corrections). Unrealized = `yesterday's holdings ×
+today's rate change`.
 
 ## Commands
 ```bash
@@ -55,6 +58,22 @@ uv run --extra dashboard streamlit run dashboard/app.py   # dashboard
 `NETWORTH_STORAGE` (local|s3), `NETWORTH_BACKUP_DIR`, `NETWORTH_DATA_DIR`,
 `NETWORTH_S3_BUCKET`/`_PREFIX`, `ANTHROPIC_API_KEY`, `NETWORTH_CLAUDE_MODEL`.
 Currencies are fixed for v1: EGP (base), USD, AED, SAR, XAU.
+
+## Live rates, future entries & opening reconciliation
+- The valuation series **extends to today** and anchors today at **live** rates
+  (`sources.fetch_current_rates`), falling back to the backup's stored rate offline. So the
+  daily cron keeps net worth current even with no new upload.
+- **Future-dated entries are excluded** (`normalize` drops `date > today`): Budget Flow doesn't
+  count a planned transaction until its date arrives, so neither do we.
+- **Opening reconciliation (validated against the app).** 13/19 accounts reconstruct to the
+  app's balance *to the cent* from transactions alone. Three accounts (both credit cards + the
+  main `Cib Account`) carry a charge from before tracking that Budget Flow applies to the
+  displayed balance but never exports — so their `ZINITIALBALANCE` is off by a **constant**
+  (proven: identical to the cent across 4 days of changing transactions). `normalize` adds a
+  one-time per-account offset from `opening_adjustments.json` (data store, gitignored / S3)
+  straight onto `initial_balance`, so every downstream step is correction-unaware and each new
+  upload still moves the balance correctly. The app's *total* will differ from ours — its FX/gold
+  rates lag; ours are live. Match per-account **native** balances, not the app's EGP total.
 
 ## Specs index
 `architecture.md` · `data-model.md` · `valuation.md` · `sources.md` · `dashboard.md` ·

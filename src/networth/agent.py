@@ -25,6 +25,7 @@ def _window(attr: pd.DataFrame, days: int) -> dict:
     return {
         "net_worth_change": float(recent["total_change"].sum()),
         "contributions": float(recent["external_flow"].sum()),
+        "realized_gain": float(recent["realized_gain"].sum()),
         "unrealized_fx": float(recent["unrealized_fx"].sum()),
         "unrealized_gold": float(recent["unrealized_gold"].sum()),
     }
@@ -40,8 +41,8 @@ def build_facts(normalized, gold) -> str:
         w = _window(attr, days)
         lines.append(
             f"- Last {label}: total change {w['net_worth_change']:,.0f} EGP "
-            f"(contributions {w['contributions']:,.0f}, FX {w['unrealized_fx']:,.0f}, "
-            f"gold {w['unrealized_gold']:,.0f})"
+            f"(contributions {w['contributions']:,.0f}, booked/realized gains "
+            f"{w['realized_gain']:,.0f}, FX {w['unrealized_fx']:,.0f}, gold {w['unrealized_gold']:,.0f})"
         )
     holdings = normalized.balances.sort_values("value_egp", ascending=False)
     top = holdings[holdings["value_egp"].abs() > 0].head(5)
