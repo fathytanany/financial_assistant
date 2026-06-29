@@ -1,0 +1,32 @@
+# Real financial data — NEVER commit. Lives in S3 only.
+*.sqlite
+*.sqlite-*
+*.db
+data/
+!tests/fixtures/sample.sqlite
+
+# Secrets
+.env
+.env.*
+*.pem
+secrets/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.uv/
+dist/
+build/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+
+# OS / editor / local tooling
+.DS_Store
+.idea/
+.vscode/
+.claude/settings.local.json
+
+# Lockfiles
+uv.lock

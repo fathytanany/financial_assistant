@@ -1,0 +1,29 @@
+name: daily
+
+on:
+  schedule:
+    - cron: "30 5 * * *"   # 05:30 UTC daily
+  workflow_dispatch: {}     # manual trigger
+
+concurrency:
+  group: daily
+  cancel-in-progress: false
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    env:
+      NETWORTH_STORAGE: s3
+      NETWORTH_S3_BUCKET: ${{ secrets.NETWORTH_S3_BUCKET }}
+      NETWORTH_S3_PREFIX: ${{ secrets.NETWORTH_S3_PREFIX }}
+      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      AWS_DEFAULT_REGION: ${{ secrets.AWS_DEFAULT_REGION }}
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+      - run: uv sync
+      - run: uv run python -m networth.pipeline
