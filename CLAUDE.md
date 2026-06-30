@@ -28,14 +28,17 @@ GitHub). The core math is deterministic; **one** Claude step writes plain-langua
 
 ## Backup cheat-sheet (Core Data SQLite)
 All data is in one wide table `ZITEM`, tagged by `Z_ENT`. Accounts = `Z_ENT=10`;
-TransactionGroup (the real money entry) = `Z_ENT=19`; `Z_ENT=18` is a wrapper (ignore).
-Dates = seconds since 2001-01-01 (add `978307200`). No balance table — balances are computed.
-Full reference: `specs/data-model.md`.
+TransactionGroup (defines the money: amount/account/rate) = `Z_ENT=19`; Transaction (a dated
+**occurrence** of a group, `ZTRANSACTIONGROUP2`→group + `ZDATE1`) = `Z_ENT=18` — this is the
+ledger row. A recurring entry = one group with many occurrences, so **sum occurrences, not
+groups**. Dates = seconds since 2001-01-01 (add `978307200`). No balance table — balances are
+computed. Full reference: `specs/data-model.md`.
 
-**Balance rule (validated):** for account currency `cA`, per group row
-`delta = ZAMOUNT1 if ZSOURCECURRENCYCODE == cA else ZAMOUNT1 / ZEXCHANGERATE1`;
-`balance = ZINITIALBALANCE + Σ delta`. Cross-currency transfers store the *real rate used that
-day* in `ZEXCHANGERATE1` → these are historical rate anchors. Validated net worth ≈ [redacted].
+**Balance rule (validated):** per occurrence (Z_ENT=18), join its group (Z_ENT=19); for account
+currency `cA`, `delta = ZAMOUNT1 if ZSOURCECURRENCYCODE == cA else ZAMOUNT1 / ZEXCHANGERATE1`;
+`balance = ZINITIALBALANCE + Σ delta` over occurrences. Cross-currency transfers store the *real
+rate used that day* in `ZEXCHANGERATE1` → these are historical rate anchors. Matches the app's
+CSV export to the cent on every account.
 
 ## Attribution (the truth engine) — `specs/valuation.md`
 `Δ net_worth = external_flow + realized_gain + unrealized_fx + unrealized_gold`. Entries are
@@ -59,21 +62,18 @@ uv run --extra dashboard streamlit run dashboard/app.py   # dashboard
 `NETWORTH_S3_BUCKET`/`_PREFIX`, `ANTHROPIC_API_KEY`, `NETWORTH_CLAUDE_MODEL`.
 Currencies are fixed for v1: EGP (base), USD, AED, SAR, XAU.
 
-## Live rates, future entries & opening reconciliation
+## Live rates, future entries & full reconciliation
 - The valuation series **extends to today** and anchors today at **live** rates
   (`sources.fetch_current_rates`), falling back to the backup's stored rate offline. So the
   daily cron keeps net worth current even with no new upload.
-- **Future-dated entries are excluded** (`normalize` drops `date > today`): Budget Flow doesn't
-  count a planned transaction until its date arrives, so neither do we.
-- **Opening reconciliation (validated against the app).** 13/19 accounts reconstruct to the
-  app's balance *to the cent* from transactions alone. Three accounts (both credit cards + the
-  main `Cib Account`) carry a charge from before tracking that Budget Flow applies to the
-  displayed balance but never exports — so their `ZINITIALBALANCE` is off by a **constant**
-  (proven: identical to the cent across 4 days of changing transactions). `normalize` adds a
-  one-time per-account offset from `opening_adjustments.json` (data store, gitignored / S3)
-  straight onto `initial_balance`, so every downstream step is correction-unaware and each new
-  upload still moves the balance correctly. The app's *total* will differ from ours — its FX/gold
-  rates lag; ours are live. Match per-account **native** balances, not the app's EGP total.
+- **Future-dated occurrences are excluded** (`normalize` drops `date > today`): Budget Flow
+  doesn't count a planned transaction until its date arrives, so neither do we.
+- **Every account reconciles to the app to the cent** (verified against its CSV export), with no
+  per-account offset. The old `opening_adjustments.json` hack is gone: those "offsets" were just
+  recurring entries we were under-counting by summing groups instead of occurrences. Summing
+  `Z_ENT=18` occurrences recovers them exactly. The app's *total* still differs from ours — its
+  FX/gold rates lag; ours are live. Match per-account **native** balances, not the app's EGP
+  total.
 
 ## Specs index
 `architecture.md` · `data-model.md` · `valuation.md` · `sources.md` · `dashboard.md` ·

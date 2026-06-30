@@ -22,7 +22,8 @@ CURRENCIES = [BASE_CURRENCY, *NON_BASE]
 CORE_DATA_EPOCH = 978307200
 # Entity discriminators in the single wide ZITEM table (see specs/data-model.md).
 ENT_ACCOUNT = 10
-ENT_GROUP = 19  # TransactionGroup = the real money entry
+ENT_GROUP = 19  # TransactionGroup: carries the money (amount/account/rate)
+ENT_TXN = 18  # Transaction: one dated occurrence of a group (recurring -> many); the ledger row
 
 # --- Environment ------------------------------------------------------------
 # Where finished outputs (gold layer, rates.sqlite, insights) are kept locally.

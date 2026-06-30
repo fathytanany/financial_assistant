@@ -5,9 +5,9 @@ Goal: separate *real performance* from *money added* and from *EGP devaluation*.
 ## Daily series (`revalue.py`)
 For each day `d`:
 - `position[account, d]` = `initial_balance` + cumulative `delta` up to `d` (account ccy),
-  forward-filled daily (`build_positions`). `initial_balance` is the reconciled opening balance
-  from `normalize` (a one-time per-account offset corrects accounts whose `ZINITIALBALANCE` is
-  wrong; see `specs/data-model.md`), so `build_positions` itself needs no special-casing.
+  forward-filled daily (`build_positions`). `initial_balance` is `ZINITIALBALANCE` straight from
+  the backup and `delta` is summed over transaction *occurrences* (recurring entries included),
+  so balances match the app exactly with no special-casing; see `specs/data-model.md`.
 - `rate_egp[ccy, d]` = dense daily ccy→EGP series from `rates.build_daily_rates`
   (anchors + current rate + optional external, interpolated).
 - `value_egp = position × rate_egp`; `value_usd = value_egp / rate_egp[USD]`.

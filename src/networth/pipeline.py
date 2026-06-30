@@ -6,8 +6,6 @@ so re-running is always safe.
 
 from __future__ import annotations
 
-import json
-
 import pandas as pd
 
 from . import agent, config, rates as rates_mod
@@ -21,9 +19,6 @@ RATES_KEY = "rates.sqlite"
 VALUATION_KEY = "gold/daily_valuation.parquet"
 ATTRIBUTION_KEY = "gold/pnl_attribution.parquet"
 INSIGHTS_KEY = "insights.md"
-# One-time per-account opening-balance reconciliation (see normalize.normalize). Real balances,
-# so it lives in the data store (S3/local), never git.
-OPENING_ADJUSTMENTS_KEY = "opening_adjustments.json"
 
 
 def _save_df(storage: Storage, key: str, df: pd.DataFrame) -> None:
@@ -32,22 +27,11 @@ def _save_df(storage: Storage, key: str, df: pd.DataFrame) -> None:
     storage.put(key, path)
 
 
-def _load_opening_adjustments(storage: Storage) -> dict[str, float]:
-    path = storage.get(OPENING_ADJUSTMENTS_KEY)
-    if not path:
-        return {}
-    try:
-        return {k: float(v) for k, v in json.loads(path.read_text(encoding="utf-8")).items()}
-    except Exception:
-        return {}
-
-
 def run(storage: Storage | None = None) -> dict:
     storage = storage or get_storage()
 
     backup = ingest(storage)
-    adjustments = _load_opening_adjustments(storage)
-    norm = normalize(backup, opening_adjustments=adjustments)
+    norm = normalize(backup)
 
     external: dict = {}
     current: dict = {}
@@ -56,8 +40,10 @@ def run(storage: Storage | None = None) -> dict:
 
         external = sources.fetch_external()
         current = sources.fetch_current_rates()  # live rates for today's valuation
-    except Exception:
-        pass
+        print(f"External rates: {external}")
+        print(f"Current rates: {current}")
+    except Exception as e:
+        print(f"Error fetching external rates: {e}")
 
     rates = rates_mod.build_daily_rates(norm.entries, norm.accounts, external, current_rates=current)
     gold = revalue(norm, rates)
@@ -79,7 +65,6 @@ def run(storage: Storage | None = None) -> dict:
         "net_worth_usd": float(gold.pnl_attribution.iloc[-1]["net_worth_usd"]),
         "days": len(gold.pnl_attribution),
         "live_rates": current,
-        "reconciled_accounts": adjustments,
         "as_of": gold.pnl_attribution.iloc[-1]["date"],
     }
     return summary
@@ -90,5 +75,5 @@ if __name__ == "__main__":
     rates_note = "live" if s["live_rates"] else "stored (no live fetch)"
     print(
         f"net worth: {s['net_worth_egp']:,.0f} EGP / {s['net_worth_usd']:,.0f} USD "
-        f"as of {str(s['as_of'])[:10]} | rates: {rates_note} | reconciled: {len(s['reconciled_accounts'])}"
+        f"as of {str(s['as_of'])[:10]} | rates: {rates_note}"
     )
