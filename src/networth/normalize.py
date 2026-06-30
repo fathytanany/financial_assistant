@@ -42,8 +42,13 @@ def load_accounts(con: sqlite3.Connection) -> pd.DataFrame:
 
 
 def load_entries(con: sqlite3.Connection) -> pd.DataFrame:
+    # One ledger row per Transaction *occurrence* (Z_ENT=18), pulling its money from the parent
+    # TransactionGroup (Z_ENT=19). A recurring entry is a single group with many dated
+    # occurrences, so summing groups under-counts it; summing occurrences is what the app does
+    # and what its CSV export shows. The occurrence owns the date (ZDATE1); the group owns the
+    # amount/account/rate. See specs/data-model.md.
     q = f"""
-        SELECT g.Z_PK                AS pk,
+        SELECT t.Z_PK                AS pk,
                g.ZACCOUNT1           AS account_pk,
                a.ZCURRENCYCODE       AS account_currency,
                COALESCE(g.ZAMOUNT1, 0.0) AS amount,
@@ -53,10 +58,13 @@ def load_entries(con: sqlite3.Connection) -> pd.DataFrame:
                g.ZTYPE1              AS type_code,
                g.ZCONTRAENTRY        AS contra_pk,
                COALESCE(g.ZINCLUDEINSTATISTICS, 1) AS in_stats,
-               datetime(g.ZDATE2 + {config.CORE_DATA_EPOCH}, 'unixepoch') AS ts
-        FROM ZITEM g
+               datetime(COALESCE(t.ZDATE1, t.ZPLANNEDDATE) + {config.CORE_DATA_EPOCH}, 'unixepoch') AS ts
+        FROM ZITEM t
+        JOIN ZITEM g ON g.Z_PK = t.ZTRANSACTIONGROUP2 AND g.Z_ENT = {config.ENT_GROUP}
         JOIN ZITEM a ON a.Z_PK = g.ZACCOUNT1
-        WHERE g.Z_ENT = {config.ENT_GROUP} AND g.ZACCOUNT1 IS NOT NULL
+        WHERE t.Z_ENT = {config.ENT_TXN}
+          AND g.ZACCOUNT1 IS NOT NULL
+          AND COALESCE(t.ZDATE1, t.ZPLANNEDDATE) IS NOT NULL
     """
     df = pd.read_sql_query(q, con)
     df["date"] = pd.to_datetime(df["ts"]).dt.normalize()
@@ -97,7 +105,7 @@ class Normalized:
         return float(self.balances["value_egp"].sum())
 
 
-def normalize(backup_path: Path, opening_adjustments: dict[str, float] | None = None) -> Normalized:
+def normalize(backup_path: Path) -> Normalized:
     con = _connect(backup_path)
     try:
         accounts = load_accounts(con)
@@ -105,19 +113,9 @@ def normalize(backup_path: Path, opening_adjustments: dict[str, float] | None = 
     finally:
         con.close()
 
-    # Drop planned/future-dated entries: Budget Flow doesn't count a transaction in a
+    # Drop planned/future-dated occurrences: Budget Flow doesn't count a transaction in a
     # balance until its date arrives, so neither do we (otherwise a scheduled expense
     # would understate cash today).
     entries = entries[entries["date"] <= pd.Timestamp.now().normalize()].reset_index(drop=True)
-
-    # Opening-balance reconciliation. A few accounts were created in Budget Flow carrying a
-    # charge from *before* tracking began that the app applies to the displayed balance but
-    # never exports as a transaction (validated: credit cards + the main current account). The
-    # result is a wrong ZINITIALBALANCE — a constant offset, identical to the cent across
-    # backups while every transaction since reconstructs exactly. We correct it once at the
-    # source so the rest of the pipeline needs no special-casing. See specs/data-model.md.
-    if opening_adjustments:
-        adj = accounts["name"].map(opening_adjustments).fillna(0.0)
-        accounts["initial_balance"] = accounts["initial_balance"] + adj
 
     return Normalized(accounts, entries, compute_balances(accounts, entries))

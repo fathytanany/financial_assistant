@@ -5,7 +5,6 @@ Public repo = logic only. Real data + secrets live outside git.
 ## S3 layout (private bucket, prefix `networth/`)
 ```
 networth/backups/<timestamp>.sqlite     # uploaded by the iOS Shortcut (latest is used)
-networth/opening_adjustments.json        # one-time per-account opening offsets (see specs/data-model.md)
 networth/rates.sqlite                    # accumulating rate history (written by the run)
 networth/gold/daily_valuation.parquet    # gold layer for the dashboard
 networth/gold/pnl_attribution.parquet

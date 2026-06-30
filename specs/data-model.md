@@ -8,28 +8,34 @@ The backup is an Apple **Core Data** SQLite store. All app data lives in one wid
 - **Account** `Z_ENT=10`: `ZNAME`, `ZCURRENCYCODE`, `ZINITIALBALANCE`,
   `ZEXCHANGERATE` (current EGP-per-unit; EGP = 1.0 ⇒ **base = EGP**), `ZISARCHIVED`.
   The app stores only the *latest* rate — no history.
-- **TransactionGroup** `Z_ENT=19` = the real money entry: `ZACCOUNT1`→account PK,
+- **TransactionGroup** `Z_ENT=19` = the money definition: `ZACCOUNT1`→account PK,
   `ZAMOUNT1` = amount **in the source currency**, `ZTYPE1` (0=income, 1=expense),
   `ZEXCHANGERATE1` = rate (source-per-account-ccy), `ZSOURCECURRENCYCODE`/
-  `ZTARGETCURRENCYCODE`, `ZDATE2` = date, `ZCONTRAENTRY`→PK of the other leg of a transfer,
+  `ZTARGETCURRENCYCODE`, `ZCONTRAENTRY`→PK of the other leg of a transfer,
   `ZINCLUDEINSTATISTICS` = the app's "add to stats" toggle (1 = real income/expense,
-  0 = excluded from stats).
-- **Transaction** `Z_ENT=18` = wrapper only (`ZTRANSACTIONGROUP2` + date); ignore for value.
+  0 = excluded from stats). A group does **not** post to the ledger by itself.
+- **Transaction** `Z_ENT=18` = a dated **occurrence** of a group (`ZTRANSACTIONGROUP2`→group PK,
+  `ZDATE1` = date). This is the actual ledger row. A one-off entry is one group with one
+  occurrence; a **recurring** entry is one group with *many* occurrences. The occurrence owns
+  the date, the group owns the amount — so balances must sum occurrences, not groups (the group
+  carries no date of its own that we rely on). This matches the app's own CSV export, which is
+  one row per occurrence.
 
 Dates are seconds since 2001-01-01 → `datetime(col + 978307200, 'unixepoch')`.
 There is **no balance table** (`Z_ENT=11` has 0 rows) — balances are computed.
 
 ## Balance reconstruction (validated)
-For an account with currency `cA`, for each of its group rows:
+For each occurrence (Z_ENT=18), join its parent group (Z_ENT=19) for the money. For an account
+with currency `cA`:
 
 ```
 delta = ZAMOUNT1                 if ZSOURCECURRENCYCODE == cA
       = ZAMOUNT1 / ZEXCHANGERATE1   otherwise   # amount is in the source ccy
-balance = ZINITIALBALANCE + Σ delta
+balance = ZINITIALBALANCE + Σ delta   (summed over occurrences)
 ```
 
-This reproduces sane balances (Gold [redacted], Cib USD [redacted]; net worth ≈ [redacted] ≈
-[redacted] at the validation snapshot). Implemented in `normalize.py`.
+Because recurring entries are now counted per occurrence, this matches the app's CSV export
+**to the cent on every account**. Implemented in `normalize.py`.
 
 ## Rate anchors (the key win)
 A cross-currency **transfer** (`{src,tgt}` = `{EGP, ccy}`, `is_transfer == True`) stores the
@@ -60,22 +66,21 @@ Implemented in `rates.extract_anchors`.
   unrealized_fx, unrealized_gold, total_change)`
   where `external_flow` = cashflow entries, `realized_gain` = adjustment entries.
 
-## Opening reconciliation (validated against the app)
-Compared against a full app screenshot, **13 of 19 accounts reconstruct to the displayed
-balance to the cent** — the transaction model is sound. The exceptions:
+## Full reconciliation against the app (validated, to the cent)
+Every account reconstructs to the app's displayed balance exactly — verified against Budget
+Flow's own CSV export (one row per occurrence). Two things were needed to get there:
 
-- **Cash** was off by exactly one *future-dated* entry. The app doesn't count a planned
-  transaction until its date; `normalize` now drops `date > today`, and Cash matches.
-- **Both credit cards + `Cib Account`** carry a charge from *before* tracking began that Budget
-  Flow applies to the displayed balance but never exports as a transaction. The result is a
-  wrong `ZINITIALBALANCE`, off by a **constant** — proven: the offset is identical to the cent
-  across 4 backups spanning days of new transactions (e.g. the Cib card is −[redacted] every
-  time; recomputing the implied app value reproduces the prior manual reconcile exactly). It is
-  *not* derivable from the backup (no balance is cached anywhere — the `Balance` entity
-  `Z_ENT=11` has 0 rows). `normalize(opening_adjustments=...)` adds the one-time per-account
-  offset (from `opening_adjustments.json`, data store only) onto `initial_balance`, so every
-  downstream step is correction-unaware. Credit cards are flagged by `ZTYPE = 2` (regular = 0,
-  asset/investment = 3/4).
+- **Future-dated occurrences are excluded.** The app doesn't count a planned transaction until
+  its date; `normalize` drops `date > today`.
+- **Recurring entries must be counted per occurrence.** This was the source of the old "opening
+  offset" mystery. A few accounts (the credit cards, flagged `ZTYPE = 2`, plus one current
+  account) carry recurring entries. Summing *groups* counted each recurring entry once and so
+  under-counted by a **constant** per account — which looked like a wrong `ZINITIALBALANCE`. It
+  was stable across backups precisely because the recurring-occurrence count is stable while
+  ordinary transactions change. Summing *occurrences* (`Z_ENT=18`) recovers it exactly — no
+  per-account offset, no `opening_adjustments.json`. The earlier claim that this was "not
+  derivable from the backup" was wrong: the occurrences were there all along in `Z_ENT=18`,
+  previously dismissed as a wrapper.
 
 ## Edge cases / notes
 - Credit-card accounts may have sign quirks — confirm against the app if a balance looks off.

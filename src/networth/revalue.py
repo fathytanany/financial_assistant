@@ -25,8 +25,8 @@ def build_positions(
 ) -> pd.DataFrame:
     """Per account, daily balance in the account's own currency.
 
-    Starts from each account's `initial_balance` (already opening-reconciled in `normalize`)
-    and lays the daily `delta` cumulatively over the date index.
+    Starts from each account's `initial_balance` and lays the daily `delta` cumulatively over
+    the date index.
     """
     pos = pd.DataFrame(index=idx)
     for _, a in accounts.iterrows():

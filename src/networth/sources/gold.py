@@ -1,22 +1,19 @@
-"""Gold source: EGP per troy ounce = XAU/USD price x USD/EGP rate (both from Stooq)."""
+"""Gold source: EGP per troy ounce = XAU/USD spot (api.gold-api.com) x USD/EGP (open.er-api)."""
 
 from __future__ import annotations
 
 import pandas as pd
 
-from .base import RateSource, fetch_stooq
+from .base import RateSource, _today_series, fetch_gold_usd, fetch_usd_base_rates
 
 
-class StooqGold(RateSource):
+class GoldApi(RateSource):
     currency = "XAU"
 
     def fetch(self) -> pd.Series:
         try:
-            xau_usd = fetch_stooq("xauusd")   # USD per ounce
-            usd_egp = fetch_stooq("usdegp")   # EGP per USD
-            if xau_usd.empty or usd_egp.empty:
-                return pd.Series(dtype=float)
-            idx = xau_usd.index.union(usd_egp.index)
-            return (xau_usd.reindex(idx).ffill() * usd_egp.reindex(idx).ffill()).dropna()
+            xau_usd = fetch_gold_usd()                   # USD per ounce
+            egp_per_usd = fetch_usd_base_rates()["EGP"]  # EGP per USD
+            return _today_series(xau_usd * egp_per_usd)  # -> EGP per ounce
         except Exception:
             return pd.Series(dtype=float)
